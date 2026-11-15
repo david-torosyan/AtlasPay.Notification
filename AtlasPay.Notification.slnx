@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="AtlasPay.Notification.Api/AtlasPay.Notification.Api.csproj" />
+  <Project Path="AtlasPay.Notification.Application/AtlasPay.Notification.Application.csproj" />
+  <Project Path="AtlasPay.Notification.Domain/AtlasPay.Notification.Domain.csproj" />
+  <Project Path="AtlasPay.Notification.Infrastructure/AtlasPay.Notification.Infrastructure.csproj" />
+  <Project Path="AtlasPay.Notification.Worker/AtlasPay.Notification.Worker.csproj" />
+</Solution>
