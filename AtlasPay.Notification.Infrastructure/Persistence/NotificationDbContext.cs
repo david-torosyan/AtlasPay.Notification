@@ -20,6 +20,9 @@ public class NotificationDbContext(
     public DbSet<ProcessedEvent> ProcessedEvents
         => Set<ProcessedEvent>();
 
+    public DbSet<CustomerUserMapping> CustomerUsers
+        => Set<CustomerUserMapping>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {

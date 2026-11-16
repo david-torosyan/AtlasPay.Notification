@@ -22,6 +22,22 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.CustomerUserMapping", b =>
+                {
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CustomerId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("customer_users", (string)null);
+                });
+
             modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")
