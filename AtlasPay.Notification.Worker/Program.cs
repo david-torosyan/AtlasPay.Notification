@@ -1,14 +1,14 @@
 using AtlasPay.Notification.Application.Features.Notifications.Commands;
 using AtlasPay.Notification.Infrastructure;
-using AtlasPay.Notification.Worker;
 using AtlasPay.Notification.Worker.Consumers;
+using AtlasPay.Notification.Worker.Mappers;
 
 var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<Worker>();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddScoped<ProcessFinancialEventHandler>();
+builder.Services.AddScoped<FinanceEventMapper>();
 
 builder.Services.AddHostedService<FinanceEventsConsumer>();
 

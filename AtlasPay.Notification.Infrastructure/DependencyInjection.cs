@@ -31,7 +31,8 @@ public static class DependencyInjection
         services.AddScoped<IProcessedEventRepository, ProcessedEventRepository>();
         services.AddScoped<IAccountNotificationPreferenceRepository, AccountNotificationPreferenceRepository>();
         services.AddScoped<IAccountNotificationPreferenceReadRepository, AccountNotificationPreferenceReadRepository>();
-        
+        services.AddScoped<ICustomerUserMappingReadRepository, CustomerUserMappingReadRepository>();
+
         return services;
     }
 }

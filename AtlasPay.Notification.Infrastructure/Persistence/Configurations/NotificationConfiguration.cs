@@ -21,6 +21,9 @@ public class NotificationConfiguration
         builder.Property(x => x.UserId)
             .IsRequired();
 
+        builder.Property(x => x.AccountId)
+            .IsRequired(false);
+
         builder.Property(x => x.Type)
             .HasConversion<string>()
             .HasMaxLength(100)

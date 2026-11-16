@@ -1,5 +1,4 @@
-﻿
-using AtlasPay.Notification.Application.Abstractions.Persistence;
+﻿using AtlasPay.Notification.Application.Abstractions.Persistence;
 using AtlasPay.Notification.Domain.Entities;
 
 using NotificationEntity = AtlasPay.Notification.Domain.Entities.Notification;
@@ -10,6 +9,7 @@ public sealed class ProcessFinancialEventHandler(
     INotificationRepository notificationRepository,
     IProcessedEventRepository processedEventRepository,
     INotificationPreferenceReadRepository preferenceRepository,
+    IAccountNotificationPreferenceReadRepository accountNotificationPreferenceRepository,
     INotificationChannelReadRepository channelRepository,
     IUnitOfWork unitOfWork)
 {
@@ -17,8 +17,7 @@ public sealed class ProcessFinancialEventHandler(
         ProcessFinancialEventCommand command,
         CancellationToken ct = default)
     {
-        if (await processedEventRepository.ExistsAsync(
-                command.EventId, ct))
+        if (await processedEventRepository.ExistsAsync(command.EventId, ct))
             return;
 
         var activeChannels = (await channelRepository.GetAllAsync(ct))
@@ -28,37 +27,43 @@ public sealed class ProcessFinancialEventHandler(
 
         foreach (var recipient in command.Recipients)
         {
-            var preferences = await preferenceRepository.GetByUserIdAsync(
-                    recipient.UserId, ct);
-
-            var channels = preferences
-                .Where(x =>
-                    x.NotificationType == recipient.Type &&
-                    x.Enabled &&
-                    activeChannels.Contains(x.Channel))
-                .Select(x => x.Channel)
-                .Distinct()
-                .ToList();
-
-            if (channels.Count == 0)
-                continue;
-
             var notification = new NotificationEntity(
-                    command.EventId,
-                    recipient.UserId,
-                    recipient.Type,
-                    recipient.Payload);
+                command.EventId,
+                recipient.UserId,
+                recipient.AccountId,
+                recipient.NotificationType,
+                recipient.Payload);
 
-            foreach (var channel in channels)
-                notification.AddDelivery(channel);
+            foreach (var channel in activeChannels)
+            {
+                bool? enabled = null;
+
+                if (recipient.AccountId is Guid accountId)
+                {
+                    enabled = await accountNotificationPreferenceRepository
+                        .GetEnabledAsync(
+                            recipient.UserId,
+                            accountId,
+                            recipient.NotificationType,
+                            channel,
+                            ct);
+                }
+
+                enabled ??= await preferenceRepository.GetEnabledAsync(
+                    recipient.UserId,
+                    recipient.NotificationType,
+                    channel,
+                    ct);
+
+                if (enabled == true)
+                    notification.AddDelivery(channel);
+            }
 
             notificationRepository.Add(notification);
         }
 
         processedEventRepository.Add(
-            new ProcessedEvent(
-                command.EventId,
-                command.EventType));
+            new ProcessedEvent(command.EventId, command.EventType));
 
         await unitOfWork.SaveChangesAsync(ct);
     }

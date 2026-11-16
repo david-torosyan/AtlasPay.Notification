@@ -1,6 +1,4 @@
-﻿
-using AtlasPay.Notification.Application.Features.NotificationPreferences.Queries;
-using AtlasPay.Notification.Domain.Entities;
+﻿using AtlasPay.Notification.Domain.Entities;
 using AtlasPay.Notification.Domain.Enums;
 
 namespace AtlasPay.Notification.Application.Abstractions.Persistence;

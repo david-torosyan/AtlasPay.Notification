@@ -1,135 +1,77 @@
-﻿using AtlasPay.Contracts.Events.Finance;
-using AtlasPay.Contracts.Events.Finance.V2;
-using Confluent.Kafka;
+﻿
 using System.Text;
 using System.Text.Json;
+using AtlasPay.Contracts.Events.Finance;
+using AtlasPay.Contracts.Events.Finance.V2;
+using AtlasPay.Notification.Application.Features.Notifications.Commands;
+using AtlasPay.Notification.Worker.Mappers;
+using Confluent.Kafka;
 
 namespace AtlasPay.Notification.Worker.Consumers;
 
 public sealed class FinanceEventsConsumer(
     IConfiguration configuration,
+    IServiceScopeFactory scopeFactory,
     ILogger<FinanceEventsConsumer> logger)
     : BackgroundService
 {
-    protected override Task ExecuteAsync(
-        CancellationToken stoppingToken)
-    {
-        return Task.Run(() => Consume(stoppingToken),
-            stoppingToken);
-    }
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
 
-    private void Consume(CancellationToken ct)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
+
+    private async Task ConsumeAsync(CancellationToken ct)
     {
         var config = new ConsumerConfig
         {
             BootstrapServers = configuration["Kafka:BootstrapServers"],
-
             GroupId = configuration["Kafka:GroupId"],
-
             AutoOffsetReset = AutoOffsetReset.Earliest,
-
             EnableAutoCommit = false,
             EnableAutoOffsetStore = false
         };
 
-        using var consumer =
-          new ConsumerBuilder<string, string>(config).Build();
+        using var consumer = new ConsumerBuilder<string, string>(config)
+            .Build();
 
-        consumer.Subscribe(
-            configuration["Kafka:Topic"] ?? "finance.events");
+        consumer.Subscribe(configuration["Kafka:Topic"] ?? "finance.events");
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                try
+                var result = consumer.Consume(ct);
+
+                // Retry the same message until processing succeeds.
+                while (!ct.IsCancellationRequested)
                 {
-                    var result = consumer.Consume(ct);
-
-                    var eventType = result.Message.Headers
-                        .FirstOrDefault(x => x.Key == "event-type");
-
-                    var type = eventType is null
-                        ? null
-                        : Encoding.UTF8.GetString(
-                            eventType.GetValueBytes());
-
-                    switch (type)
+                    try
                     {
-                        case FinanceEventTypes.DepositCompletedV2:
-                            {
-                                var @event =
-                                    JsonSerializer.Deserialize<DepositCompletedV2>(
-                                        result.Message.Value);
+                        await ProcessAsync(result, ct);
 
-                                logger.LogInformation(
-                                    "Received deposit event {EventId}",
-                                    @event?.EventId);
+                        consumer.Commit(result);
 
-                                break;
-                            }
+                        logger.LogInformation(
+                            "Committed Kafka event at {Offset}",
+                            result.TopicPartitionOffset);
 
-                        case FinanceEventTypes.WithdrawalCompletedV2:
-                            {
-                                var @event =
-                                    JsonSerializer.Deserialize<WithdrawalCompletedV2>(
-                                        result.Message.Value);
-
-                                logger.LogInformation(
-                                    "Received withdrawal event {EventId}",
-                                    @event?.EventId);
-
-                                break;
-                            }
-
-                        case FinanceEventTypes.TransferCompletedV2:
-                            {
-                                var @event =
-                                    JsonSerializer.Deserialize<TransferCompletedV2>(
-                                        result.Message.Value);
-
-                                logger.LogInformation(
-                                    "Received transfer event {EventId}",
-                                    @event?.EventId);
-
-                                break;
-                            }
-
-                        case FinanceEventTypes.TransferReversedV2:
-                            {
-                                var @event =
-                                    JsonSerializer.Deserialize<TransferReversedV2>(
-                                        result.Message.Value);
-
-                                logger.LogInformation(
-                                    "Received reversal event {EventId}",
-                                    @event?.EventId);
-
-                                break;
-                            }
-
-                        default:
-                            logger.LogWarning(
-                                "Unsupported Finance event type {EventType}",
-                                type);
-
-                            // Do not acknowledge unhandled events yet.
-                            throw new InvalidOperationException(
-                                $"Unsupported Finance event type: {type}");
+                        break;
                     }
+                    catch (OperationCanceledException)
+                        when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(
+                            ex,
+                            "Failed to process Kafka event at {Offset}",
+                            result.TopicPartitionOffset);
 
-                    // Do not commit offsets yet.
-                    // We have only deserialized the event,
-                    // not persisted its notification.
-                    throw new NotImplementedException(
-                        "Notification processing is not connected yet.");
-                }
-                catch (ConsumeException ex)
-                {
-                    logger.LogError(ex,
-                        "Kafka consumption failed.");
-
-                    throw;
+                        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                    }
                 }
             }
         }
@@ -141,6 +83,48 @@ public sealed class FinanceEventsConsumer(
         finally
         {
             consumer.Close();
+        }
+    }
+
+    private async Task ProcessAsync(
+        ConsumeResult<string, string> result,
+        CancellationToken ct)
+    {
+        var eventTypeHeader = result.Message.Headers?
+            .FirstOrDefault(x => x.Key == "event-type");
+
+        var eventType = eventTypeHeader is null
+            ? null
+            : Encoding.UTF8.GetString(eventTypeHeader.GetValueBytes());
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+
+        var mapper = scope.ServiceProvider
+            .GetRequiredService<FinanceEventMapper>();
+
+        var handler = scope.ServiceProvider
+            .GetRequiredService<ProcessFinancialEventHandler>();
+
+        switch (eventType)
+        {
+            case FinanceEventTypes.DepositCompletedV2:
+                {
+                    var financialEvent =
+                        JsonSerializer.Deserialize<DepositCompletedV2>(
+                            result.Message.Value,
+                            JsonOptions)
+                        ?? throw new JsonException("Invalid deposit event.");
+
+                    var command = await mapper.MapAsync(financialEvent, ct);
+
+                    await handler.HandleAsync(command, ct);
+
+                    break;
+                }
+
+            default:
+                throw new NotSupportedException(
+                    $"Unsupported Finance event type: {eventType}");
         }
     }
 }

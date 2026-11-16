@@ -14,6 +14,8 @@ public class Notification
 
     public Guid UserId { get; private set; }
 
+    public Guid? AccountId { get; private set; }
+
     public NotificationType Type { get; private set; }
 
     public string Payload { get; private set; } = null!;
@@ -26,6 +28,7 @@ public class Notification
     public Notification(
         Guid eventId,
         Guid userId,
+        Guid? accountId,
         NotificationType type,
         string payload)
     {
@@ -41,6 +44,7 @@ public class Notification
         Id = Guid.NewGuid();
         EventId = eventId;
         UserId = userId;
+        AccountId = accountId;
         Type = type;
         Payload = payload;
         CreatedAt = DateTime.UtcNow;
