@@ -6,6 +6,8 @@ public class Notification
 {
     private Notification() { } // For EF Core
 
+    private readonly List<NotificationDelivery> _deliveries = [];
+
     public Guid Id { get; private set; }
 
     public Guid EventId { get; private set; }
@@ -17,6 +19,9 @@ public class Notification
     public string Payload { get; private set; } = null!;
 
     public DateTime CreatedAt { get; private set; }
+
+    public IReadOnlyCollection<NotificationDelivery> Deliveries =>
+                _deliveries.AsReadOnly();
 
     public Notification(
         Guid eventId,
@@ -39,5 +44,19 @@ public class Notification
         Type = type;
         Payload = payload;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    public void AddDelivery(DeliveryChannel channel)
+    {
+        if (!Enum.IsDefined(channel))
+            throw new ArgumentOutOfRangeException(nameof(channel));
+
+        if (_deliveries.Any(x => x.Channel == channel))
+            throw new InvalidOperationException(
+                $"Delivery channel {channel} already exists.");
+
+        var delivery = new NotificationDelivery(Id, channel);
+
+        _deliveries.Add(delivery);
     }
 }

@@ -10,4 +10,8 @@
     <ProjectReference Include="..\AtlasPay.Notification.Domain\AtlasPay.Notification.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="AtlasPay.Contracts" Version="1.1.0" />
+  </ItemGroup>
+
 </Project>

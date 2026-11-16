@@ -1,0 +1,1 @@
+﻿global using NotificationEntity = AtlasPay.Notification.Domain.Entities.Notification;

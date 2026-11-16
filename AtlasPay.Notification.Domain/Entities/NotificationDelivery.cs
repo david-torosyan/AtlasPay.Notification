@@ -5,7 +5,7 @@ namespace AtlasPay.Notification.Domain.Entities;
 public class NotificationDelivery
 {
     private NotificationDelivery() { } // For EF Core
-
+     
     public Guid Id { get; private set; }
     public Guid NotificationId { get; private set; }
 
