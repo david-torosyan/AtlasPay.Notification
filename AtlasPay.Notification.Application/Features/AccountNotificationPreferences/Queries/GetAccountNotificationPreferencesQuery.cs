@@ -1,0 +1,3 @@
+﻿namespace AtlasPay.Notification.Application.Features.AccountNotificationPreferences.Queries;
+
+public sealed record GetAccountNotificationPreferencesQuery(Guid UserId);

@@ -22,6 +22,31 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.AccountNotificationPreference", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("NotificationType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "AccountId", "NotificationType", "Channel");
+
+                    b.ToTable("account_notification_preferences", (string)null);
+                });
+
             modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.CustomerUserMapping", b =>
                 {
                     b.Property<Guid>("CustomerId")

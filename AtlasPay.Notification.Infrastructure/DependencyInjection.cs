@@ -29,7 +29,9 @@ public static class DependencyInjection
         services.AddScoped<INotificationChannelReadRepository, NotificationChannelReadRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProcessedEventRepository, ProcessedEventRepository>();
-
+        services.AddScoped<IAccountNotificationPreferenceRepository, AccountNotificationPreferenceRepository>();
+        services.AddScoped<IAccountNotificationPreferenceReadRepository, AccountNotificationPreferenceReadRepository>();
+        
         return services;
     }
 }

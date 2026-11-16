@@ -23,6 +23,9 @@ public class NotificationDbContext(
     public DbSet<CustomerUserMapping> CustomerUsers
         => Set<CustomerUserMapping>();
 
+    public DbSet<AccountNotificationPreference> AccountNotificationPreferences
+        =>Set<AccountNotificationPreference>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
