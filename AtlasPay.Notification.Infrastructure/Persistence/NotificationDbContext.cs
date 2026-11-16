@@ -26,6 +26,9 @@ public class NotificationDbContext(
     public DbSet<AccountNotificationPreference> AccountNotificationPreferences
         =>Set<AccountNotificationPreference>();
 
+    public DbSet<DeferredEvent> DeferredEvents
+        => Set<DeferredEvent>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {

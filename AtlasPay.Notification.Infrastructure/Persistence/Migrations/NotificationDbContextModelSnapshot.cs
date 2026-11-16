@@ -63,6 +63,40 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
                     b.ToTable("customer_users", (string)null);
                 });
 
+            modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.DeferredEvent", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("NextRetryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("EventId");
+
+                    b.HasIndex("NextRetryAt");
+
+                    b.ToTable("deferred_events", (string)null);
+                });
+
             modelBuilder.Entity("AtlasPay.Notification.Domain.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")

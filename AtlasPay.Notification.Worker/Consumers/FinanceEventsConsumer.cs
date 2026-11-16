@@ -1,8 +1,11 @@
 ﻿
 using AtlasPay.Contracts.Events.Finance;
 using AtlasPay.Contracts.Events.Finance.V2;
+using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
 using AtlasPay.Notification.Application.Features.Notifications.Commands;
+using AtlasPay.Notification.Worker.Exceptions;
 using AtlasPay.Notification.Worker.Mappers;
+using AtlasPay.Notification.Worker.Processors;
 using AtlasPay.Notification.Worker.Publishers;
 using Confluent.Kafka;
 using System.Text;
@@ -67,16 +70,25 @@ public sealed class FinanceEventsConsumer(
         }
     }
 
-
     private async Task ProcessWithRetriesAsync(
-        ConsumeResult<string, string> result,
-        CancellationToken ct)
+      ConsumeResult<string, string> result,
+      CancellationToken ct)
     {
         for (var attempt = 1; attempt <= _maxRetries; attempt++)
         {
             try
             {
                 await ProcessAsync(result, ct);
+                return;
+            }
+            catch (CustomerMappingNotFoundException ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Customer {CustomerId} mapping missing. Deferring event.",
+                    ex.CustomerId);
+
+                await DeferEventAsync(result, ct);
                 return;
             }
             catch (Exception ex) when (
@@ -115,6 +127,40 @@ public sealed class FinanceEventsConsumer(
         }
     }
 
+    private async Task DeferEventAsync(
+    ConsumeResult<string, string> result,
+    CancellationToken ct)
+    {
+        using var document = JsonDocument.Parse(result.Message.Value);
+
+        var eventId = document.RootElement
+            .GetProperty("eventId")
+            .GetGuid();
+
+        var eventTypeHeader = result.Message.Headers?
+            .FirstOrDefault(x => x.Key == "event-type");
+
+        var eventType = eventTypeHeader is null
+            ? throw new JsonException("Missing event-type header.")
+            : Encoding.UTF8.GetString(eventTypeHeader.GetValueBytes());
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+
+        var handler = scope.ServiceProvider
+            .GetRequiredService<DeferFinancialEventHandler>();
+
+        await handler.HandleAsync(
+            new DeferFinancialEventCommand(
+                EventId: eventId,
+                EventType: eventType,
+                Payload: result.Message.Value),
+            ct);
+
+        logger.LogInformation(
+            "Deferred financial event {EventId}",
+            eventId);
+    }
+
     private async Task ProcessAsync(
         ConsumeResult<string, string> result,
         CancellationToken ct)
@@ -123,85 +169,17 @@ public sealed class FinanceEventsConsumer(
             .FirstOrDefault(x => x.Key == "event-type");
 
         var eventType = eventTypeHeader is null
-            ? null
+            ? throw new JsonException("Missing event-type header.")
             : Encoding.UTF8.GetString(eventTypeHeader.GetValueBytes());
 
         await using var scope = scopeFactory.CreateAsyncScope();
 
-        var mapper = scope.ServiceProvider
-            .GetRequiredService<FinanceEventMapper>();
+        var processor = scope.ServiceProvider
+            .GetRequiredService<FinanceEventProcessor>();
 
-        var handler = scope.ServiceProvider
-            .GetRequiredService<ProcessFinancialEventHandler>();
-
-        switch (eventType)
-        {
-            case FinanceEventTypes.DepositCompletedV2:
-                {
-                    var financialEvent =
-                        JsonSerializer.Deserialize<DepositCompletedV2>(
-                            result.Message.Value,
-                            JsonOptions)
-                        ?? throw new JsonException("Invalid deposit event.");
-
-                    if (financialEvent.EventId == Guid.Empty ||
-                        financialEvent.CustomerId == Guid.Empty ||
-                        financialEvent.AccountId == Guid.Empty)
-                    {
-                        throw new JsonException(
-                            "DepositCompletedV2 contains invalid identifiers.");
-                    }
-
-                    var command = await mapper.MapAsync(financialEvent, ct);
-
-                    await handler.HandleAsync(command, ct);
-
-                    break;
-                }
-            case FinanceEventTypes.WithdrawalCompletedV2:
-                {
-                    var financialEvent =
-                        JsonSerializer.Deserialize<WithdrawalCompletedV2>(
-                            result.Message.Value,
-                            JsonOptions)
-                        ?? throw new JsonException("Invalid withdrawal event.");
-
-                    var command = await mapper.MapAsync(financialEvent, ct);
-
-                    await handler.HandleAsync(command, ct);
-                    break;
-                }
-            case FinanceEventTypes.TransferCompletedV2:
-                {
-                    var financialEvent =
-                        JsonSerializer.Deserialize<TransferCompletedV2>(
-                            result.Message.Value,
-                            JsonOptions)
-                        ?? throw new JsonException("Invalid transfer event.");
-
-                    var command = await mapper.MapAsync(financialEvent, ct);
-
-                    await handler.HandleAsync(command, ct);
-
-                    break;
-                }
-            case FinanceEventTypes.TransferReversedV2:
-                {
-                    var financialEvent =
-                        JsonSerializer.Deserialize<TransferReversedV2>(
-                            result.Message.Value,
-                            JsonOptions)
-                        ?? throw new JsonException("Invalid reversal event.");
-
-                    var command = await mapper.MapAsync(financialEvent, ct);
-
-                    await handler.HandleAsync(command, ct);
-
-                    break;
-                }
-            default:
-                throw new NotSupportedException(
-                    $"Unsupported Finance event type: {eventType}");
-        }
+        await processor.ProcessAsync(
+            eventType,
+            result.Message.Value,
+            ct);
     }
 }
