@@ -40,7 +40,8 @@ public class NotificationConfiguration
         {
             x.EventId,
             x.UserId,
-            x.Type
+            x.Type,
+            x.AccountId
         }).IsUnique();
 
         builder.HasIndex(x => new

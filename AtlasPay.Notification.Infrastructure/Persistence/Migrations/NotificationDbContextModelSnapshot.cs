@@ -94,7 +94,7 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId", "CreatedAt")
                         .IsDescending(false, true);
 
-                    b.HasIndex("EventId", "UserId", "Type")
+                    b.HasIndex("EventId", "UserId", "Type", "AccountId")
                         .IsUnique();
 
                     b.ToTable("notifications", (string)null);

@@ -1,17 +1,19 @@
 ﻿
-using System.Text;
-using System.Text.Json;
 using AtlasPay.Contracts.Events.Finance;
 using AtlasPay.Contracts.Events.Finance.V2;
 using AtlasPay.Notification.Application.Features.Notifications.Commands;
 using AtlasPay.Notification.Worker.Mappers;
+using AtlasPay.Notification.Worker.Publishers;
 using Confluent.Kafka;
+using System.Text;
+using System.Text.Json;
 
 namespace AtlasPay.Notification.Worker.Consumers;
 
 public sealed class FinanceEventsConsumer(
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory,
+    DeadLetterPublisher deadLetterPublisher,
     ILogger<FinanceEventsConsumer> logger)
     : BackgroundService
 {
@@ -20,6 +22,9 @@ public sealed class FinanceEventsConsumer(
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
         => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
+
+    private readonly int _maxRetries =
+        Math.Max(1, configuration.GetValue("Kafka:MaxRetries", 3));
 
     private async Task ConsumeAsync(CancellationToken ct)
     {
@@ -43,46 +48,70 @@ public sealed class FinanceEventsConsumer(
             {
                 var result = consumer.Consume(ct);
 
-                // Retry the same message until processing succeeds.
-                while (!ct.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await ProcessAsync(result, ct);
+                await ProcessWithRetriesAsync(result, ct);
 
-                        consumer.Commit(result);
+                consumer.Commit(result);
 
-                        logger.LogInformation(
-                            "Committed Kafka event at {Offset}",
-                            result.TopicPartitionOffset);
-
-                        break;
-                    }
-                    catch (OperationCanceledException)
-                        when (ct.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(
-                            ex,
-                            "Failed to process Kafka event at {Offset}",
-                            result.TopicPartitionOffset);
-
-                        await Task.Delay(TimeSpan.FromSeconds(5), ct);
-                    }
-                }
+                logger.LogInformation(
+                    "Committed Kafka offset {Offset}",
+                    result.TopicPartitionOffset);
             }
         }
         catch (OperationCanceledException)
             when (ct.IsCancellationRequested)
         {
-            // Normal shutdown.
         }
         finally
         {
             consumer.Close();
+        }
+    }
+
+
+    private async Task ProcessWithRetriesAsync(
+        ConsumeResult<string, string> result,
+        CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= _maxRetries; attempt++)
+        {
+            try
+            {
+                await ProcessAsync(result, ct);
+                return;
+            }
+            catch (Exception ex) when (
+                ex is JsonException or NotSupportedException)
+            {
+                logger.LogError(
+                    ex,
+                    "Invalid Kafka event at {Offset}. Sending to DLT.",
+                    result.TopicPartitionOffset);
+
+                await deadLetterPublisher.PublishAsync(
+                    result, ex, ct);
+
+                return;
+            }
+            catch (OperationCanceledException)
+                when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Processing failed. Attempt {Attempt}/{MaxRetries}",
+                    attempt,
+                    _maxRetries);
+
+                if (attempt == _maxRetries)
+                    throw;
+
+                await Task.Delay(
+                    TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                    ct);
+            }
         }
     }
 
@@ -115,13 +144,61 @@ public sealed class FinanceEventsConsumer(
                             JsonOptions)
                         ?? throw new JsonException("Invalid deposit event.");
 
+                    if (financialEvent.EventId == Guid.Empty ||
+                        financialEvent.CustomerId == Guid.Empty ||
+                        financialEvent.AccountId == Guid.Empty)
+                    {
+                        throw new JsonException(
+                            "DepositCompletedV2 contains invalid identifiers.");
+                    }
+
                     var command = await mapper.MapAsync(financialEvent, ct);
 
                     await handler.HandleAsync(command, ct);
 
                     break;
                 }
+            case FinanceEventTypes.WithdrawalCompletedV2:
+                {
+                    var financialEvent =
+                        JsonSerializer.Deserialize<WithdrawalCompletedV2>(
+                            result.Message.Value,
+                            JsonOptions)
+                        ?? throw new JsonException("Invalid withdrawal event.");
 
+                    var command = await mapper.MapAsync(financialEvent, ct);
+
+                    await handler.HandleAsync(command, ct);
+                    break;
+                }
+            case FinanceEventTypes.TransferCompletedV2:
+                {
+                    var financialEvent =
+                        JsonSerializer.Deserialize<TransferCompletedV2>(
+                            result.Message.Value,
+                            JsonOptions)
+                        ?? throw new JsonException("Invalid transfer event.");
+
+                    var command = await mapper.MapAsync(financialEvent, ct);
+
+                    await handler.HandleAsync(command, ct);
+
+                    break;
+                }
+            case FinanceEventTypes.TransferReversedV2:
+                {
+                    var financialEvent =
+                        JsonSerializer.Deserialize<TransferReversedV2>(
+                            result.Message.Value,
+                            JsonOptions)
+                        ?? throw new JsonException("Invalid reversal event.");
+
+                    var command = await mapper.MapAsync(financialEvent, ct);
+
+                    await handler.HandleAsync(command, ct);
+
+                    break;
+                }
             default:
                 throw new NotSupportedException(
                     $"Unsupported Finance event type: {eventType}");
