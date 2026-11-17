@@ -1,4 +1,7 @@
-﻿using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
+﻿
+using AtlasPay.Notification.Application.Abstractions.Persistence;
+using AtlasPay.Notification.Application.Exceptions;
+using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
 using AtlasPay.Notification.Worker.Exceptions;
 using AtlasPay.Notification.Worker.Processors;
 using AtlasPay.Notification.Worker.Publishers;
@@ -15,11 +18,11 @@ public sealed class FinanceEventsConsumer(
     ILogger<FinanceEventsConsumer> logger)
     : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-        => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
-
     private readonly int _maxRetries =
         Math.Max(1, configuration.GetValue("Kafka:MaxRetries", 3));
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
 
     private async Task ConsumeAsync(CancellationToken ct)
     {
@@ -35,7 +38,8 @@ public sealed class FinanceEventsConsumer(
         using var consumer = new ConsumerBuilder<string, string>(config)
             .Build();
 
-        consumer.Subscribe(configuration["Kafka:Topic"] ?? "finance.events");
+        consumer.Subscribe(
+            configuration["Kafka:Topic"] ?? "finance.events");
 
         try
         {
@@ -43,7 +47,16 @@ public sealed class FinanceEventsConsumer(
             {
                 var result = consumer.Consume(ct);
 
-                await ProcessWithRetriesAsync(result, ct);
+                try
+                {
+                    await ProcessWithRetriesAsync(result, ct);
+                }
+                catch (NotificationAlreadyExistsException)
+                {
+                    logger.LogInformation(
+                        "Notification already exists at Kafka offset {Offset}",
+                        result.TopicPartitionOffset);
+                }
 
                 consumer.Commit(result);
 
@@ -55,6 +68,7 @@ public sealed class FinanceEventsConsumer(
         catch (OperationCanceledException)
             when (ct.IsCancellationRequested)
         {
+            // Normal shutdown.
         }
         finally
         {
@@ -63,8 +77,8 @@ public sealed class FinanceEventsConsumer(
     }
 
     private async Task ProcessWithRetriesAsync(
-      ConsumeResult<string, string> result,
-      CancellationToken ct)
+        ConsumeResult<string, string> result,
+        CancellationToken ct)
     {
         for (var attempt = 1; attempt <= _maxRetries; attempt++)
         {
@@ -72,6 +86,11 @@ public sealed class FinanceEventsConsumer(
             {
                 await ProcessAsync(result, ct);
                 return;
+            }
+            catch (NotificationAlreadyExistsException)
+            {
+                // Duplicate is not a transient failure.
+                throw;
             }
             catch (CustomerMappingNotFoundException ex)
             {
@@ -91,9 +110,7 @@ public sealed class FinanceEventsConsumer(
                     "Invalid Kafka event at {Offset}. Sending to DLT.",
                     result.TopicPartitionOffset);
 
-                await deadLetterPublisher.PublishAsync(
-                    result, ex, ct);
-
+                await deadLetterPublisher.PublishAsync(result, ex, ct);
                 return;
             }
             catch (OperationCanceledException)
@@ -120,10 +137,11 @@ public sealed class FinanceEventsConsumer(
     }
 
     private async Task DeferEventAsync(
-    ConsumeResult<string, string> result,
-    CancellationToken ct)
+        ConsumeResult<string, string> result,
+        CancellationToken ct)
     {
-        using var document = JsonDocument.Parse(result.Message.Value);
+        using var document =
+            JsonDocument.Parse(result.Message.Value);
 
         var eventId = document.RootElement
             .GetProperty("eventId")
@@ -134,7 +152,8 @@ public sealed class FinanceEventsConsumer(
 
         var eventType = eventTypeHeader is null
             ? throw new JsonException("Missing event-type header.")
-            : Encoding.UTF8.GetString(eventTypeHeader.GetValueBytes());
+            : Encoding.UTF8.GetString(
+                eventTypeHeader.GetValueBytes());
 
         await using var scope = scopeFactory.CreateAsyncScope();
 
@@ -162,16 +181,22 @@ public sealed class FinanceEventsConsumer(
 
         var eventType = eventTypeHeader is null
             ? throw new JsonException("Missing event-type header.")
-            : Encoding.UTF8.GetString(eventTypeHeader.GetValueBytes());
+            : Encoding.UTF8.GetString(
+                eventTypeHeader.GetValueBytes());
 
         await using var scope = scopeFactory.CreateAsyncScope();
 
         var processor = scope.ServiceProvider
             .GetRequiredService<FinanceEventProcessor>();
 
+        var unitOfWork = scope.ServiceProvider
+            .GetRequiredService<IUnitOfWork>();
+
         await processor.ProcessAsync(
             eventType,
             result.Message.Value,
             ct);
+
+        await unitOfWork.SaveChangesAsync(ct);
     }
 }

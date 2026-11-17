@@ -1,5 +1,7 @@
 ﻿using AtlasPay.Notification.Application.Abstractions.Persistence;
+using AtlasPay.Notification.Application.Exceptions;
 using AtlasPay.Notification.Domain.Entities;
+using AtlasPay.Notification.Infrastructure.Persistence.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace AtlasPay.Notification.Infrastructure.Persistence;
@@ -24,7 +26,7 @@ public class NotificationDbContext(
         => Set<CustomerUserMapping>();
 
     public DbSet<AccountNotificationPreference> AccountNotificationPreferences
-        =>Set<AccountNotificationPreference>();
+        => Set<AccountNotificationPreference>();
 
     public DbSet<DeferredEvent> DeferredEvents
         => Set<DeferredEvent>();
@@ -35,6 +37,20 @@ public class NotificationDbContext(
         var transaction = await Database.BeginTransactionAsync(ct);
 
         return new UnitOfWorkTransaction(transaction);
+    }
+
+    public override async Task<int> SaveChangesAsync(
+    CancellationToken ct = default)
+    {
+        try
+        {
+            return await base.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+            when (NotificationDuplicateDetector.IsDuplicate(ex))
+        {
+            throw new NotificationAlreadyExistsException(ex);
+        }
     }
 
     protected override void OnModelCreating(
