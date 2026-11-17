@@ -27,8 +27,52 @@ public sealed class DeferredEventRepository(
                 .Take(batchSize)
                 .ToListAsync(ct);
 
-    public void Remove(DeferredEvent deferredEvent)
-        => dbContext.DeferredEvents.Remove(deferredEvent);
+    public async Task<bool> CompleteAsync(
+        Guid eventId,
+        Guid claimId,
+        CancellationToken ct = default)
+    {
+        var effectedRows = await dbContext.DeferredEvents
+            .Where(x =>
+                x.EventId == eventId &&
+                x.ClaimId == claimId &&
+                x.LockedUntil > DateTime.UtcNow)
+            .ExecuteDeleteAsync(ct);
+
+        return effectedRows == 1;
+    }
+
+    public async Task<bool> ScheduleRetryAsync(
+        Guid eventId,
+        Guid claimId,
+        string error,
+        CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+
+        var affectedRows = await dbContext.Database
+            .ExecuteSqlInterpolatedAsync($"""
+            UPDATE public.deferred_events
+            SET
+                "AttemptCount" = "AttemptCount" + 1,
+                "NextRetryAt" = {now} + make_interval(
+                    secs => LEAST(
+                        1800,
+                        (power(2::numeric, LEAST("AttemptCount", 5)) * 60)::integer
+                    )
+                ),
+                "LastError" = {error},
+                "LockedBy" = NULL,
+                "LockedUntil" = NULL,
+                "ClaimId" = NULL
+            WHERE "EventId" = {eventId}
+              AND "ClaimId" = {claimId}
+              AND "LockedUntil" > {now}
+            """, ct);
+
+        return affectedRows == 1;
+    }
+
 
     public Task<DeferredEvent?> GetByIdAsync
         (Guid eventId, CancellationToken ct = default)
@@ -65,7 +109,7 @@ public sealed class DeferredEventRepository(
 
         foreach (var deferredEvent in events)
         {
-            deferredEvent.Claim(workerId, lockedUntil);
+            deferredEvent.Claim(workerId, Guid.NewGuid(), lockedUntil);
         }
 
         await dbContext.SaveChangesAsync(ct);

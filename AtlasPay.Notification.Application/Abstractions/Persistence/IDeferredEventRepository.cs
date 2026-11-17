@@ -17,11 +17,20 @@ public interface IDeferredEventRepository
 
     void Add(DeferredEvent deferredEvent);
 
-    void Remove(DeferredEvent deferredEvent);
+    Task<bool> CompleteAsync(
+        Guid eventId,
+        Guid claimId,
+        CancellationToken ct = default);
 
     Task<IReadOnlyList<DeferredEvent>> ClaimDueEventsAsync(
         string workerId,
         int batchSize,
         TimeSpan leaseDuration,
+        CancellationToken ct = default);
+
+    Task<bool> ScheduleRetryAsync(
+        Guid eventId,
+        Guid claimId,
+        string error,
         CancellationToken ct = default);
 }

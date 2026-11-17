@@ -15,6 +15,8 @@ public sealed class DeferredEvent
     public string? LockedBy { get; private set; }
     public DateTime? LockedUntil { get; private set; }
 
+    public Guid? ClaimId { get; private set; } // For deleteing atomicly
+
     public DeferredEvent(
         Guid eventId,
         string eventType,
@@ -46,13 +48,13 @@ public sealed class DeferredEvent
         NextRetryAt = DateTime.UtcNow.Add(delay);
     }
 
-    public void Claim(string workerId, DateTime lockedUntil)
+    public void Claim(
+        string workerId,
+        Guid claimId,
+        DateTime lockedUntil)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-        if (lockedUntil <= DateTime.UtcNow)
-            throw new ArgumentOutOfRangeException(nameof(lockedUntil));
-
         LockedBy = workerId;
+        ClaimId = claimId;
         LockedUntil = lockedUntil;
     }
 }

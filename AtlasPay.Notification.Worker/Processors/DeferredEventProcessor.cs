@@ -9,16 +9,13 @@ public sealed class DeferredEventProcessor(
     ILogger<DeferredEventProcessor> logger)
     : BackgroundService
 {
-    private static readonly TimeSpan PollInterval =
-        TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(1);
 
-    private readonly string _workerId =
-        Guid.NewGuid().ToString();
+    private readonly string _workerId = $"worker-{Guid.NewGuid()}";
+    private readonly int _batchSize = 1;
 
-    private readonly int _batchSize = 20;
-
-    protected override async Task ExecuteAsync(
-        CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(PollInterval);
 
@@ -39,7 +36,7 @@ public sealed class DeferredEventProcessor(
 
     private async Task ProcessDueEventsAsync(CancellationToken ct)
     {
-        IReadOnlyList<Guid> eventIds;
+        IReadOnlyList<(Guid EventId, Guid ClaimId)> claims;
 
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
@@ -47,24 +44,27 @@ public sealed class DeferredEventProcessor(
                 .GetRequiredService<IDeferredEventRepository>();
 
             var events = await repository.ClaimDueEventsAsync(
-                workerId: _workerId,
-                batchSize: _batchSize,
-                leaseDuration: TimeSpan.FromMinutes(1),
+                _workerId,
+                _batchSize,
+                LeaseDuration,
                 ct);
-           
-            eventIds = events.Select(x => x.EventId).ToArray();
+
+            claims = events
+                .Select(x => (x.EventId, x.ClaimId!.Value))
+                .ToArray();
         }
 
-        foreach (var eventId in eventIds)
+        foreach (var (eventId, claimId) in claims)
         {
             ct.ThrowIfCancellationRequested();
 
-            await ProcessEventAsync(eventId, ct);
+            await ProcessEventAsync(eventId, claimId, ct);
         }
     }
 
     private async Task ProcessEventAsync(
         Guid eventId,
+        Guid claimId,
         CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
@@ -80,8 +80,16 @@ public sealed class DeferredEventProcessor(
 
         var deferredEvent = await repository.GetByIdAsync(eventId, ct);
 
-        if (deferredEvent is null)
+        if (deferredEvent is null ||
+            deferredEvent.ClaimId != claimId ||
+            deferredEvent.LockedUntil <= DateTime.UtcNow)
+        {
+            logger.LogWarning(
+                "Deferred event {EventId} is no longer owned by this claim",
+                eventId);
+
             return;
+        }
 
         try
         {
@@ -90,24 +98,24 @@ public sealed class DeferredEventProcessor(
                 deferredEvent.Payload,
                 ct);
 
-            repository.Remove(deferredEvent);
-
             await unitOfWork.SaveChangesAsync(ct);
+
+            var completed = await repository.CompleteAsync(
+                eventId,
+                claimId,
+                ct);
+
+            if (!completed)
+            {
+                logger.LogWarning(
+                    "Cannot complete deferred event {EventId}: claim lost",
+                    eventId);
+
+                return;
+            }
 
             logger.LogInformation(
                 "Successfully processed deferred event {EventId}",
-                eventId);
-        }
-        catch (CustomerMappingNotFoundException ex)
-        {
-            deferredEvent.ScheduleRetry(
-                ex.Message,
-                TimeSpan.FromMinutes(1));
-
-            await unitOfWork.SaveChangesAsync(ct);
-
-            logger.LogWarning(
-                "Customer mapping still missing for event {EventId}",
                 eventId);
         }
         catch (OperationCanceledException)
@@ -117,18 +125,34 @@ public sealed class DeferredEventProcessor(
         }
         catch (Exception ex)
         {
-            logger.LogError(
-                ex,
-                "Failed to process deferred event {EventId}",
-                eventId);
-
-            // Do not immediately retry the same failing event.
-            // A later poll can retry after this delay.
-            deferredEvent.ScheduleRetry(
+            var scheduled = await repository.ScheduleRetryAsync(
+                eventId,
+                claimId,
                 ex.Message,
-                TimeSpan.FromMinutes(5));
+                ct);
 
-            await unitOfWork.SaveChangesAsync(ct);
+            if (!scheduled)
+            {
+                logger.LogWarning(
+                    "Cannot schedule retry for event {EventId}: claim lost",
+                    eventId);
+
+                return;
+            }
+
+            if (ex is CustomerMappingNotFoundException)
+            {
+                logger.LogWarning(
+                    "Customer mapping still missing for event {EventId}",
+                    eventId);
+            }
+            else
+            {
+                logger.LogError(
+                    ex,
+                    "Failed to process deferred event {EventId}",
+                    eventId);
+            }
         }
     }
 }
