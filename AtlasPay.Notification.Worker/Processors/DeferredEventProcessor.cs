@@ -93,12 +93,13 @@ public sealed class DeferredEventProcessor(
 
         try
         {
+            await using var transaction =
+                await unitOfWork.BeginTransactionAsync(ct);
+
             await processor.ProcessAsync(
                 deferredEvent.EventType,
                 deferredEvent.Payload,
                 ct);
-
-            await unitOfWork.SaveChangesAsync(ct);
 
             var completed = await repository.CompleteAsync(
                 eventId,
@@ -106,22 +107,22 @@ public sealed class DeferredEventProcessor(
                 ct);
 
             if (!completed)
-            {
-                logger.LogWarning(
-                    "Cannot complete deferred event {EventId}: claim lost",
-                    eventId);
+                throw new DeferredEventClaimLostException(eventId);
 
-                return;
-            }
+            await unitOfWork.SaveChangesAsync(ct);
 
-            logger.LogInformation(
-                "Successfully processed deferred event {EventId}",
-                eventId);
+            await transaction.CommitAsync(ct);
         }
         catch (OperationCanceledException)
             when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (DeferredEventClaimLostException ex)
+        {
+            logger.LogWarning(
+                "Claim lost for deferred event {EventId}",
+                ex.EventId);
         }
         catch (Exception ex)
         {

@@ -140,6 +140,8 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
                     b.HasIndex("EventId", "UserId", "Type", "AccountId")
                         .IsUnique();
 
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("EventId", "UserId", "Type", "AccountId"), false);
+
                     b.ToTable("notifications", (string)null);
                 });
 

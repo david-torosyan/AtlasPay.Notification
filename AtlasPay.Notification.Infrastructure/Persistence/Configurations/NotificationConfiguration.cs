@@ -42,7 +42,8 @@ public class NotificationConfiguration
             x.UserId,
             x.Type,
             x.AccountId
-        }).IsUnique();
+        }).IsUnique()
+        .AreNullsDistinct(false);
 
         builder.HasIndex(x => new
         {

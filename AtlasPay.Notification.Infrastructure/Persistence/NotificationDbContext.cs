@@ -29,6 +29,14 @@ public class NotificationDbContext(
     public DbSet<DeferredEvent> DeferredEvents
         => Set<DeferredEvent>();
 
+    public async Task<IUnitOfWorkTransaction> BeginTransactionAsync(
+        CancellationToken ct = default)
+    {
+        var transaction = await Database.BeginTransactionAsync(ct);
+
+        return new UnitOfWorkTransaction(transaction);
+    }
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
