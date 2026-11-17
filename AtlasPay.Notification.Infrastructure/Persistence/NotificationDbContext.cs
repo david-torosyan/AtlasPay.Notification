@@ -13,6 +13,9 @@ public class NotificationDbContext(
     public DbSet<NotificationEntity> Notifications
         => Set<NotificationEntity>();
 
+    public DbSet<NotificationDelivery> NotificationDeliveries
+        => Set<NotificationDelivery>();
+
     public DbSet<NotificationPreference> NotificationPreferences
         => Set<NotificationPreference>();
 
