@@ -8,54 +8,66 @@ public sealed class NotificationDeliveryRepository(
     NotificationDbContext dbContext)
     : INotificationDeliveryRepository
 {
-    public async Task<ClaimedDelivery?> ClaimNextAsync(
-        Guid lockToken,
-        DateTime lockedUntil,
-        CancellationToken ct)
+    public async Task<IReadOnlyList<ClaimedDelivery>> ClaimBatchAsync(
+    int batchSize,
+    Guid lockToken,
+    DateTime lockedUntil,
+    CancellationToken ct)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
+
         var now = DateTime.UtcNow;
 
         var query = dbContext.Database
             .SqlQuery<ClaimedDelivery>(
                 $"""
-                WITH candidate AS (
-                    SELECT "Id"
-                    FROM notification_deliveries
-                    WHERE
-                        (
-                            "Status" = 'Pending'
-                            AND (
-                                "NextRetryAt" IS NULL
-                                OR "NextRetryAt" <= {now}
-                            )
+            WITH candidate AS (
+                SELECT "Id"
+                FROM notification_deliveries
+                WHERE
+                    (
+                        "Status" = 'Pending'
+                        AND "AttemptCount" < 5
+                        AND (
+                            "NextRetryAt" IS NULL
+                            OR "NextRetryAt" <= {now}
                         )
-                        OR (
-                            "Status" = 'Processing'
-                            AND "LockedUntil" <= {now}
-                        )
-                    ORDER BY "CreatedAt"
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
-                )
-                UPDATE notification_deliveries AS d
-                SET
-                    "Status" = 'Processing',
-                    "LockToken" = {lockToken},
-                    "LockedUntil" = {lockedUntil},
-                    "AttemptCount" = d."AttemptCount" + 1,
-                    "UpdatedAt" = {now}
-                FROM candidate
-                WHERE d."Id" = candidate."Id"
-                RETURNING
-                    d."Id" AS "Id",
-                    d."NotificationId" AS "NotificationId",
-                    d."Channel" AS "Channel",
-                    d."LockToken" AS "LockToken",
-                    d."AttemptCount" AS "AttemptCount"
-                """);
+                    )
+                    OR (
+                        "Status" = 'Processing'
+                        AND "AttemptCount" < 5
+                        AND "LockedUntil" <= {now}
+                    )
+                ORDER BY "CreatedAt", "Id"
+                LIMIT {batchSize}
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE notification_deliveries AS d
+            SET
+                "Status" = 'Processing',
+                "LockToken" = {lockToken},
+                "LockedUntil" = {lockedUntil},
+                "AttemptCount" = d."AttemptCount" + 1,
+                "UpdatedAt" = {now}
+            FROM candidate
+            WHERE d."Id" = candidate."Id"
+            RETURNING
+                d."Id" AS "Id",
+                d."NotificationId" AS "NotificationId",
+                d."Channel" AS "Channel",
+                d."LockToken" AS "LockToken",
+                d."AttemptCount" AS "AttemptCount"
+            """);
 
-        return await query.AsAsyncEnumerable()
-                          .FirstOrDefaultAsync(ct);
+        var deliveries = new List<ClaimedDelivery>();
+
+        await foreach (var delivery in
+            query.AsAsyncEnumerable().WithCancellation(ct))
+        {
+            deliveries.Add(delivery);
+        }
+
+        return deliveries;
     }
 
     public Task<NotificationEntity?> GetNotificationAsync(
@@ -131,10 +143,43 @@ public sealed class NotificationDeliveryRepository(
     }
 
     private IQueryable<Domain.Entities.NotificationDelivery>
-        OwnedDelivery(Guid deliveryId, Guid lockToken) 
+        OwnedDelivery(Guid deliveryId, Guid lockToken)
             => dbContext.NotificationDeliveries.Where(
                 x => x.Id == deliveryId
                      && x.Status == DeliveryStatus.Processing
                      && x.LockToken == lockToken
                      && x.LockedUntil > DateTime.UtcNow);
+
+    public Task<int> FailExhaustedClaimsAsync(
+        int maxAttempts,
+        CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+
+        return dbContext.NotificationDeliveries
+            .Where(x =>
+                x.Status == DeliveryStatus.Processing &&
+                x.AttemptCount >= maxAttempts &&
+                x.LockedUntil <= now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(
+                    x => x.Status,
+                    DeliveryStatus.Failed)
+                .SetProperty(
+                    x => x.LastError,
+                    "Delivery claim expired after maximum attempts.")
+                .SetProperty(
+                    x => x.LockToken,
+                    (Guid?)null)
+                .SetProperty(
+                    x => x.LockedUntil,
+                    (DateTime?)null)
+                .SetProperty(
+                    x => x.NextRetryAt,
+                    (DateTime?)null)
+                .SetProperty(
+                    x => x.UpdatedAt,
+                    now),
+                ct);
+    }
 }

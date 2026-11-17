@@ -14,7 +14,8 @@ public sealed class ClaimedDelivery
 
 public interface INotificationDeliveryRepository
 {
-    Task<ClaimedDelivery?> ClaimNextAsync(
+    Task<IReadOnlyList<ClaimedDelivery>?> ClaimBatchAsync(
+        int batchSize,
         Guid lockToken,
         DateTime lockedUntil,
         CancellationToken ct);
@@ -39,5 +40,9 @@ public interface INotificationDeliveryRepository
         Guid deliveryId,
         Guid lockToken,
         string error,
+        CancellationToken ct);
+
+    Task<int> FailExhaustedClaimsAsync(
+        int maxAttempts,
         CancellationToken ct);
 }

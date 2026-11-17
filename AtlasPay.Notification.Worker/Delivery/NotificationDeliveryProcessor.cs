@@ -11,23 +11,13 @@ public sealed class NotificationDeliveryProcessor(
 {
     private const int MaxAttempts = 5;
 
-    private static readonly TimeSpan LeaseDuration =
-        TimeSpan.FromMinutes(1);
-
     private static readonly TimeSpan SendTimeout =
         TimeSpan.FromSeconds(30);
 
-    public async Task ProcessNextAsync(CancellationToken ct)
+    public async Task ProcessAsync(
+        ClaimedDelivery delivery,
+        CancellationToken ct)
     {
-        var lockToken = Guid.NewGuid();
-        var lockedUntil = DateTime.UtcNow.Add(LeaseDuration);
-
-        var delivery = await repository.ClaimNextAsync(
-            lockToken, lockedUntil, ct);
-
-        if (delivery is null)
-            return;
-
         try
         {
             var notification = await repository.GetNotificationAsync(
@@ -49,13 +39,13 @@ public sealed class NotificationDeliveryProcessor(
             timeoutCts.CancelAfter(SendTimeout);
 
             await sender.SendAsync(
-                notification,
-                timeoutCts.Token);
+                  notification,
+                  timeoutCts.Token);
 
             var updated = await repository.MarkAsSentAsync(
-                delivery.Id,
-                lockToken,
-                ct);
+                 delivery.Id,
+                 delivery.LockToken,
+                 ct);
 
             if (!updated)
             {
@@ -91,7 +81,7 @@ public sealed class NotificationDeliveryProcessor(
             {
                 updated = await repository.MarkAsFailedAsync(
                     delivery.Id,
-                    lockToken,
+                    delivery.LockToken,
                     error,
                     ct);
             }
@@ -102,7 +92,7 @@ public sealed class NotificationDeliveryProcessor(
 
                 updated = await repository.ScheduleRetryAsync(
                     delivery.Id,
-                    lockToken,
+                    delivery.LockToken,
                     DateTime.UtcNow.Add(delay),
                     error,
                     ct);
