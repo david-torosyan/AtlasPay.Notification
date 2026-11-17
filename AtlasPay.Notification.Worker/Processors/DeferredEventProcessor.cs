@@ -12,6 +12,11 @@ public sealed class DeferredEventProcessor(
     private static readonly TimeSpan PollInterval =
         TimeSpan.FromSeconds(10);
 
+    private readonly string _workerId =
+        Guid.NewGuid().ToString();
+
+    private readonly int _batchSize = 20;
+
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
@@ -41,9 +46,12 @@ public sealed class DeferredEventProcessor(
             var repository = scope.ServiceProvider
                 .GetRequiredService<IDeferredEventRepository>();
 
-            var events = await repository.GetDueAsync(
-                DateTime.UtcNow, 20, ct);
-
+            var events = await repository.ClaimDueEventsAsync(
+                workerId: _workerId,
+                batchSize: _batchSize,
+                leaseDuration: TimeSpan.FromMinutes(1),
+                ct);
+           
             eventIds = events.Select(x => x.EventId).ToArray();
         }
 

@@ -83,6 +83,12 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("LockedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("NextRetryAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -92,7 +98,7 @@ namespace AtlasPay.Notification.Infrastructure.Persistence.Migrations
 
                     b.HasKey("EventId");
 
-                    b.HasIndex("NextRetryAt");
+                    b.HasIndex("NextRetryAt", "LockedUntil");
 
                     b.ToTable("deferred_events", (string)null);
                 });

@@ -37,6 +37,10 @@ public sealed class DeferredEventConfiguration
         builder.Property(x => x.LastError)
             .HasMaxLength(2000);
 
-        builder.HasIndex(x => x.NextRetryAt);
+        builder.HasIndex(x => new
+        {
+            x.NextRetryAt,
+            x.LockedUntil
+        });
     }
 }

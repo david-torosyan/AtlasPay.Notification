@@ -18,4 +18,10 @@ public interface IDeferredEventRepository
     void Add(DeferredEvent deferredEvent);
 
     void Remove(DeferredEvent deferredEvent);
+
+    Task<IReadOnlyList<DeferredEvent>> ClaimDueEventsAsync(
+        string workerId,
+        int batchSize,
+        TimeSpan leaseDuration,
+        CancellationToken ct = default);
 }

@@ -12,6 +12,8 @@ public sealed class DeferredEvent
     public DateTime NextRetryAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public string? LastError { get; private set; }
+    public string? LockedBy { get; private set; }
+    public DateTime? LockedUntil { get; private set; }
 
     public DeferredEvent(
         Guid eventId,
@@ -42,5 +44,15 @@ public sealed class DeferredEvent
         AttemptCount++;
         LastError = error;
         NextRetryAt = DateTime.UtcNow.Add(delay);
+    }
+
+    public void Claim(string workerId, DateTime lockedUntil)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
+        if (lockedUntil <= DateTime.UtcNow)
+            throw new ArgumentOutOfRangeException(nameof(lockedUntil));
+
+        LockedBy = workerId;
+        LockedUntil = lockedUntil;
     }
 }

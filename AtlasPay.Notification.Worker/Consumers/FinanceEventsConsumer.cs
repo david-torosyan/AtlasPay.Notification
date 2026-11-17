@@ -1,10 +1,5 @@
-﻿
-using AtlasPay.Contracts.Events.Finance;
-using AtlasPay.Contracts.Events.Finance.V2;
-using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
-using AtlasPay.Notification.Application.Features.Notifications.Commands;
+﻿using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
 using AtlasPay.Notification.Worker.Exceptions;
-using AtlasPay.Notification.Worker.Mappers;
 using AtlasPay.Notification.Worker.Processors;
 using AtlasPay.Notification.Worker.Publishers;
 using Confluent.Kafka;
@@ -20,9 +15,6 @@ public sealed class FinanceEventsConsumer(
     ILogger<FinanceEventsConsumer> logger)
     : BackgroundService
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new(JsonSerializerDefaults.Web);
-
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
         => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
 
