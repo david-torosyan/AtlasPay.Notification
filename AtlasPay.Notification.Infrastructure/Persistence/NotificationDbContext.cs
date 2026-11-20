@@ -25,7 +25,7 @@ public class NotificationDbContext(
     public DbSet<ProcessedEvent> ProcessedEvents
         => Set<ProcessedEvent>();
 
-    public DbSet<CustomerUserMapping> CustomerUsers
+    public DbSet<CustomerUserMapping> CustomerUserMapping
         => Set<CustomerUserMapping>();
 
     public DbSet<AccountNotificationPreference> AccountNotificationPreferences

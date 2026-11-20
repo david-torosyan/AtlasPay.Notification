@@ -2,44 +2,35 @@
 using AtlasPay.Notification.Application.Abstractions.Persistence;
 using AtlasPay.Notification.Application.Exceptions;
 using AtlasPay.Notification.Application.Features.DeferredEvents.Commands;
+using AtlasPay.Notification.Worker.Configuration;
 using AtlasPay.Notification.Worker.Exceptions;
+using AtlasPay.Notification.Worker.Kafka;
 using AtlasPay.Notification.Worker.Processors;
 using AtlasPay.Notification.Worker.Publishers;
 using Confluent.Kafka;
+using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 
 namespace AtlasPay.Notification.Worker.Consumers;
 
 public sealed class FinanceEventsConsumer(
-    IConfiguration configuration,
+    KafkaConsumerFactory consumerFactory,
     IServiceScopeFactory scopeFactory,
     DeadLetterPublisher deadLetterPublisher,
+    IOptions<KafkaSettings> options,
     ILogger<FinanceEventsConsumer> logger)
     : BackgroundService
 {
-    private readonly int _maxRetries =
-        Math.Max(1, configuration.GetValue("Kafka:MaxRetries", 3));
+    private readonly int _maxRetries = options.Value.MaxRetries;
+    private readonly string _consumerName = "Finance";
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
         => Task.Run(() => ConsumeAsync(stoppingToken), stoppingToken);
 
     private async Task ConsumeAsync(CancellationToken ct)
     {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers = configuration["Kafka:BootstrapServers"],
-            GroupId = configuration["Kafka:GroupId"],
-            AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = false,
-            EnableAutoOffsetStore = false
-        };
-
-        using var consumer = new ConsumerBuilder<string, string>(config)
-            .Build();
-
-        consumer.Subscribe(
-            configuration["Kafka:Topic"] ?? "finance.events");
+        using var consumer = consumerFactory.Create(_consumerName);
 
         try
         {
@@ -110,7 +101,7 @@ public sealed class FinanceEventsConsumer(
                     "Invalid Kafka event at {Offset}. Sending to DLT.",
                     result.TopicPartitionOffset);
 
-                await deadLetterPublisher.PublishAsync(result, ex, ct);
+                await deadLetterPublisher.PublishAsync(_consumerName, result, ex, ct);
                 return;
             }
             catch (OperationCanceledException)

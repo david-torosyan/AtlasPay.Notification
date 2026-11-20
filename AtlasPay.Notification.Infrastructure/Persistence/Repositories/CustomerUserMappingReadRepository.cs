@@ -10,7 +10,7 @@ public sealed class CustomerUserMappingReadRepository(
     public Task<Guid?> GetUserIdAsync(
         Guid customerId,
         CancellationToken ct = default)
-            => dbContext.CustomerUsers
+            => dbContext.CustomerUserMapping
                 .AsNoTracking()
                 .Where(x => x.CustomerId == customerId)
                 .Select(x => (Guid?)x.UserId)
