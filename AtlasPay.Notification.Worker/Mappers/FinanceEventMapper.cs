@@ -77,9 +77,11 @@ public sealed class FinanceEventMapper(
         var toUserId = await customerUserRepository.GetUserIdAsync(
             @event.ToCustomerId, ct);
 
-        if (fromUserId is null || toUserId is null)
-            throw new InvalidOperationException(
-                "Unable to resolve transfer recipients.");
+        if (fromUserId is null)
+            throw new CustomerMappingNotFoundException(@event.FromCustomerId);
+
+        if (toUserId is null)
+            throw new CustomerMappingNotFoundException(@event.ToCustomerId);
 
         var sender = new NotificationRecipient(
             UserId: fromUserId.Value,
@@ -123,9 +125,11 @@ public sealed class FinanceEventMapper(
         var toUserId = await customerUserRepository.GetUserIdAsync(
             @event.ToCustomerId, ct);
 
-        if (fromUserId is null || toUserId is null)
-            throw new InvalidOperationException(
-                "Unable to resolve transfer reversal recipients.");
+        if (fromUserId is null)
+            throw new CustomerMappingNotFoundException(@event.FromCustomerId);
+
+        if (toUserId is null)
+            throw new CustomerMappingNotFoundException(@event.ToCustomerId);
 
         var sender = new NotificationRecipient(
             UserId: fromUserId.Value,
