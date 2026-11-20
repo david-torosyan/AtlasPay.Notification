@@ -2,4 +2,5 @@
 
 public sealed record RegisterCustomerUserCommand(
     Guid CustomerId,
-    Guid UserId);
+    Guid UserId,
+    string Email);

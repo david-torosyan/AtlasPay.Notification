@@ -20,6 +20,10 @@ public sealed class CustomerUserMappingConfiguration
         builder.Property(x => x.UserId)
             .IsRequired();
 
+        builder.Property(x => x.Email)
+            .HasMaxLength(320)
+            .IsRequired();
+
         builder.HasIndex(x => x.UserId).IsUnique();
     }
 }

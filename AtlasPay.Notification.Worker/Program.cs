@@ -27,7 +27,15 @@ builder.Services
 
 builder.Services.AddSingleton<KafkaConsumerFactory>();
 builder.Services.AddSingleton<DeadLetterPublisher>();
-builder.Services.AddSingleton<IAmazonSimpleEmailService, AmazonSimpleEmailServiceClient>();
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<IEmailProvider, SmtpEmailProvider>();
+}
+else
+{
+    builder.Services.AddSingleton<IAmazonSimpleEmailService, AmazonSimpleEmailServiceClient>();
+    builder.Services.AddScoped<IEmailProvider, SesEmailProvider>();
+}
 
 builder.Services.AddScoped<ProcessFinancialEventHandler>();
 builder.Services.AddScoped<DeferFinancialEventHandler>();
@@ -36,7 +44,6 @@ builder.Services.AddScoped<FinanceEventProcessor>();
 
 builder.Services.AddScoped<INotificationDeliveryRepository, NotificationDeliveryRepository>();
 builder.Services.AddScoped<INotificationSender, EmailNotificationSender>();
-builder.Services.AddScoped<IEmailProvider, SesEmailProvider>();
 builder.Services.AddScoped<ICustomerUserMappingRepository,CustomerUserMappingRepository>();
 builder.Services.AddScoped<RegisterCustomerUserHandler>();
 builder.Services.AddScoped<NotificationDeliveryProcessor>();

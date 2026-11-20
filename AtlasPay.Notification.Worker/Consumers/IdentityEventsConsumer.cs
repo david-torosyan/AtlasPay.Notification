@@ -135,7 +135,8 @@ public sealed class IdentityEventsConsumer(
         await handler.HandleAsync(
             new RegisterCustomerUserCommand(
                 @event.CustomerId,
-                @event.UserId),
+                @event.UserId,
+                @event.Email),
             ct);
 
         logger.LogInformation(
