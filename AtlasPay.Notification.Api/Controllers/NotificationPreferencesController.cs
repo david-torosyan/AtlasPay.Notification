@@ -2,14 +2,17 @@
 using AtlasPay.Notification.Api.Contracts.NotificationPreferences;
 using AtlasPay.Notification.Application.Features.NotificationPreferences.Commands;
 using AtlasPay.Notification.Application.Features.NotificationPreferences.Queries;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AtlasPay.Notification.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/notification-preferences")]
 public sealed class NotificationPreferencesController : ControllerBase
 {
+    [Authorize]
     [HttpPut]
     public async Task<IActionResult> SetPreference(
         [FromBody] SetNotificationPreferenceRequest request,
@@ -27,7 +30,7 @@ public sealed class NotificationPreferencesController : ControllerBase
         return NoContent();
     }
 
-
+    [Authorize]
     [HttpGet("{userId:guid}")]
     public async Task<ActionResult<List<NotificationPreferenceDto>>> GetByUserId(
         Guid userId,

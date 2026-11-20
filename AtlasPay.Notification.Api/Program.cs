@@ -3,6 +3,7 @@ using AtlasPay.Notification.Application.Features.AccountNotificationPreferences.
 using AtlasPay.Notification.Application.Features.NotificationChannels.Queries;
 using AtlasPay.Notification.Application.Features.NotificationPreferences.Commands;
 using AtlasPay.Notification.Infrastructure;
+using AtlasPay.Security.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +18,14 @@ builder.Services.AddScoped<GetNotificationChannelsHandler>();
 builder.Services.AddScoped<GetNotificationPreferencesHandler>();
 builder.Services.AddScoped<GetAccountNotificationPreferencesHandler>();
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddAtlasPayJwtAuthentication(builder.Configuration);
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("NotificationPolicy", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim("customer_id");
+    });
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

@@ -2,10 +2,12 @@
 using AtlasPay.Notification.Api.Contracts.NotificationChannels;
 using AtlasPay.Notification.Application.Features.NotificationChannels.Commands;
 using AtlasPay.Notification.Application.Features.NotificationChannels.Queries;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AtlasPay.Notification.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/notification-channels")]
 public sealed class NotificationChannelsController : ControllerBase
@@ -21,6 +23,7 @@ public sealed class NotificationChannelsController : ControllerBase
         return Ok(channels);
     }
 
+    [Authorize(Roles = "notifications.manage")]
     [HttpPut]
     public async Task<IActionResult> SetStatus(
         [FromBody] SetNotificationChannelStatusRequest request,

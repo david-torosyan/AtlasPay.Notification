@@ -1,10 +1,12 @@
 ﻿using AtlasPay.Notification.Api.Contracts.AccountNotificationPreferences;
 using AtlasPay.Notification.Application.Features.AccountNotificationPreferences.Commands;
 using AtlasPay.Notification.Application.Features.AccountNotificationPreferences.Queries;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AtlasPay.Notification.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/account-notification-preferences")]
 public sealed class AccountNotificationPreferencesController : ControllerBase
